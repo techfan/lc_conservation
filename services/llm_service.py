@@ -1,0 +1,132 @@
+from typing import AsyncGenerator, Dict, Any, List, Optional
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_community.chat_models import ChatZhipuAI
+from langchain.agents import AgentExecutor, create_react_agent, Tool
+from config.settings import settings
+from services.rag_service import rag_service
+from db.sql_service import sql_service
+from context.manager import ContextManager
+from db.redis_client import redis_client
+from schemas.schemas import Message, MessageRole
+
+
+class LLMService:
+    def __init__(self):
+        self._llm = None
+        self._context_manager = ContextManager()
+        self._tools = None
+    
+    def initialize(self):
+        self._llm = ChatZhipuAI(
+            model=settings.LLM_MODEL,
+            api_key=settings.ZHIPU_API_KEY,
+            temperature=0.1
+        )
+        
+        self._tools = [
+            Tool(
+                name="rag_search",
+                func=self._rag_search,
+                description="检索知识库获取相关知识",
+            ),
+            Tool(
+                name="sql_query",
+                func=self._sql_query,
+                description="执行SQL查询获取数据",
+            )
+        ]
+    
+    def _rag_search(self, query: str) -> str:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            results = loop.run_until_complete(rag_service.search(query))
+            return "\n".join([f"{r['content']}" for r in results])
+        finally:
+            loop.close()
+    
+    def _sql_query(self, sql: str) -> str:
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            results = loop.run_until_complete(sql_service.execute_query(sql))
+            return str(results)
+        finally:
+            loop.close()
+    
+    async def stream_chat(
+        self,
+        question: str,
+        session_id: str,
+        user_id: Optional[str] = None
+    ) -> AsyncGenerator[str, None]:
+        messages = await redis_client.get_messages(session_id)
+        db_schema = await sql_service.get_db_schema()
+        
+        context_assembly = await self._context_manager.assemble_context(
+            db_schema=db_schema,
+            user_info={"user_id": user_id},
+            conversation_history=messages
+        )
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", context_assembly.system_prompt),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("user", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),
+        ])
+        
+        agent = create_react_agent(self._llm, self._tools, prompt)
+        agent_executor = AgentExecutor(
+            agent=agent, tools=self._tools, verbose=True, handle_parsing_errors=True)
+        
+        chat_history = []
+        for msg in messages:
+            if msg["role"] == "user":
+                chat_history.append(("user", msg["content"]))
+            elif msg["role"] == "assistant":
+                chat_history.append(("assistant", msg["content"]))
+        
+        async for chunk in agent_executor.astream_events(
+            {"input": question, "chat_history": chat_history},
+            version="v1"
+        ):
+            if chunk["event"] == "on_chat_model_stream":
+                content = chunk["data"]["chunk"].content
+                if content:
+                    yield content
+        
+        await redis_client.add_message(session_id, {
+            "role": MessageRole.USER,
+            "content": question
+        })
+    
+    async def chat(
+        self,
+        question: str,
+        session_id: str,
+        user_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        full_answer = ""
+        sources = []
+        
+        async for chunk in self.stream_chat(question, session_id, user_id):
+            full_answer += chunk
+        
+        await redis_client.add_message(session_id, {
+            "role": MessageRole.ASSISTANT,
+            "content": full_answer
+        })
+        
+        return {
+            "answer": full_answer,
+            "sources": sources,
+            "thinking_process": None
+        }
+
+
+llm_service = LLMService()
