@@ -1,38 +1,26 @@
 from typing import List, Dict, Any, Optional
-from pymilvus import (
-    connections,
-    Collection,
-    FieldSchema,
-    CollectionSchema,
-    DataType,
-    utility,
-)
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from pymilvus import MilvusClient, DataType
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import ollama
 from config.settings import settings
 from config.logger import logger
 
 
 class OllamaEmbeddings:
-    """使用 ollama 本地安装的 bge-m3 模型"""
-    
     def __init__(self, model: str = "bge-m3", base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url
-    
+
     def embed_query(self, text: str) -> List[float]:
-        """为查询文本生成嵌入向量"""
         try:
             response = ollama.embeddings(model=self.model, prompt=text)
             return response["embedding"]
         except Exception as e:
             logger.error(f"使用 ollama 生成嵌入向量失败: {e}")
-            # 如果 ollama 失败，返回随机向量作为备用
             import random
             return [random.uniform(-1, 1) for _ in range(1024)]
-    
+
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """为文档列表生成嵌入向量"""
         embeddings = []
         for text in texts:
             embeddings.append(self.embed_query(text))
@@ -40,50 +28,42 @@ class OllamaEmbeddings:
 
 
 class OllamaReranker:
-    """使用 ollama 本地安装的 bge-reranker-v2-m3 模型进行重排序"""
-    
     def __init__(self, model: str = "bge-reranker-v2-m3", base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url
-    
+
     def rerank(self, query: str, documents: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
-        """对文档进行重排序"""
         if not documents:
             return []
-        
+
         try:
-            # 构建重排序的 prompt
             scored_docs = []
             for doc in documents:
                 content = doc.get("content", "")
-                # 使用 ollama 生成相关性评分
-                # 注意：这只是一个简单的实现，实际使用时需要根据模型特性调整
                 prompt = f"Query: {query}\nDocument: {content}\nRelevance score (0-1):"
                 response = ollama.generate(model=self.model, prompt=prompt)
-                # 尝试解析评分
                 try:
                     score = float(response["response"].strip())
                 except:
-                    score = doc.get("score", 0)  # 使用原有的分数
-                
+                    score = doc.get("score", 0)
+
                 scored_docs.append({
                     **doc,
                     "rerank_score": score
                 })
-            
-            # 按重排序分数降序排列
+
             scored_docs.sort(key=lambda x: x["rerank_score"], reverse=True)
             return scored_docs[:top_k]
-        
+
         except Exception as e:
             logger.error(f"使用 ollama 重排序失败: {e}")
-            # 如果重排序失败，返回原始文档
             return documents[:top_k]
 
 
 class RAGService:
     def __init__(self):
-        self._collection: Optional[Collection] = None
+        self._client: Optional[MilvusClient] = None
+        self._collection_name: str = settings.MILVUS_COLLECTION
         self._embeddings: Optional[OllamaEmbeddings] = None
         self._reranker: Optional[OllamaReranker] = None
         self._text_splitter = RecursiveCharacterTextSplitter(
@@ -91,114 +71,106 @@ class RAGService:
             chunk_overlap=50,
             length_function=len
         )
-    
+
     def connect(self):
-        connections.connect("default", host=settings.MILVUS_HOST, port=settings.MILVUS_PORT)
+        self._client = MilvusClient(uri=f"http://{settings.MILVUS_HOST}:{settings.MILVUS_PORT}")
         self._create_collection()
-        # 使用 ollama 本地安装的 bge-m3 嵌入模型
         self._embeddings = OllamaEmbeddings(model="bge-m3")
-        # 使用 ollama 本地安装的 bge-reranker-v2-m3 重排序模型
-        self._reranker = OllamaReranker(model="bge-reranker-v2-m3")
-    
+        self._reranker = OllamaReranker(model="qllama/bge-reranker-v2-m3")
+
     def _create_collection(self):
-        from pymilvus import utility
-        
-        # 首先查看 Milvus 中已有的集合
+        target_collection = self._collection_name
+
         try:
-            all_collections = utility.list_collections()
+            all_collections = self._client.list_collections()
             logger.info(f"Milvus 中所有集合: {all_collections}")
         except Exception as e:
             logger.error(f"获取集合列表失败: {e}")
             all_collections = []
-        
-        # 直接使用已有的 ai_query_docs 集合
-        target_collection = "ai_query_docs"
-        
+
         logger.info(f"使用集合: {target_collection}")
-        try:
-            self._collection = Collection(target_collection)
-            logger.info(f"成功加载集合: {target_collection}")
-        except Exception as e:
-            logger.error(f"加载集合 {target_collection} 失败: {e}")
-            raise
-        
-        # 确保索引存在
-        try:
-            if len(self._collection.indexes) == 0:
-                logger.info(f"为集合 {target_collection} 创建向量索引")
-                index_params = {
-                    "index_type": "IVF_FLAT",
-                    "metric_type": "IP",
-                    "params": {"nlist": 128}
-                }
-                self._collection.create_index(field_name="embedding", index_params=index_params)
-                logger.info("索引创建成功")
-        except Exception as e:
-            logger.error(f"索引创建或检查失败: {e}")
-        
-        # 加载集合到内存
-        try:
-            self._collection.load()
-            logger.info(f"集合 {target_collection} 已成功加载")
-        except Exception as e:
-            logger.error(f"加载集合失败: {e}")
-    
+
+        if not self._client.has_collection(target_collection):
+            logger.info(f"集合 {target_collection} 不存在，正在创建...")
+            schema = MilvusClient.create_schema(
+                auto_id=False,
+                enable_dynamic_field=True,
+            )
+            schema.add_field(field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=256)
+            schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=1024)
+            schema.add_field(field_name="content", datatype=DataType.VARCHAR, max_length=65535)
+            schema.add_field(field_name="metadata", datatype=DataType.JSON)
+
+            index_params = self._client.prepare_index_params()
+            index_params.add_index(
+                field_name="embedding",
+                index_type="IVF_FLAT",
+                metric_type="IP",
+                params={"nlist": 128}
+            )
+
+            self._client.create_collection(
+                collection_name=target_collection,
+                schema=schema,
+                index_params=index_params
+            )
+            logger.info(f"集合 {target_collection} 创建成功")
+
+        self._client.load_collection(target_collection)
+        logger.info(f"集合 {target_collection} 已成功加载")
+
     async def add_document(self, doc_id: str, content: str, metadata: Optional[Dict] = None):
         chunks = self._text_splitter.split_text(content)
-        
+        data = []
+
         for i, chunk in enumerate(chunks):
             embedding = self._embeddings.embed_query(chunk)
             chunk_id = f"{doc_id}_{i}"
-            self._collection.insert([
-                [chunk_id],
-                [chunk],
-                [metadata or {}],
-                [embedding]
-            ])
-        self._collection.flush()
-    
+            data.append({
+                "id": chunk_id,
+                "content": chunk,
+                "metadata": metadata or {},
+                "embedding": embedding
+            })
+
+        self._client.insert(collection_name=self._collection_name, data=data)
+        self._client.flush(collection_name=self._collection_name)
+
     async def search(self, query: str, top_k: int = 5, retrieve_k: int = 20) -> List[Dict[str, Any]]:
-        """
-        搜索相关文档，使用 ollama 的 bge-m3 进行检索，使用 bge-reranker-v2-m3 进行重排序
-        
-        Args:
-            query: 查询文本
-            top_k: 返回的文档数量
-            retrieve_k: 检索阶段返回的文档数量（用于重排序）
-        
-        Returns:
-            重排序后的文档列表
-        """
         query_embedding = self._embeddings.embed_query(query)
-        results = self._collection.search(
+        results = self._client.search(
+            collection_name=self._collection_name,
             data=[query_embedding],
             anns_field="embedding",
-            param={"metric_type": "IP", "params": {"nprobe": 10}},
+            search_params={"metric_type": "IP", "params": {"nprobe": 10}},
             limit=retrieve_k,
             output_fields=["content", "metadata"]
         )
-        
+
         docs = []
         for hits in results:
             for hit in hits:
                 docs.append({
-                    "content": hit.entity.get("content"),
-                    "metadata": hit.entity.get("metadata"),
-                    "score": hit.score
+                    "content": hit.get("entity", {}).get("content", ""),
+                    "metadata": hit.get("entity", {}).get("metadata", {}),
+                    "score": hit.get("distance", 0)
                 })
-        
-        # 使用 ollama 的 bge-reranker-v2-m3 进行重排序
+
         if self._reranker and docs:
             docs = self._reranker.rerank(query, docs, top_k)
-        
+
         return docs[:top_k]
-    
+
     async def delete_document(self, doc_id: str):
         expr = f"id like '{doc_id}_%'"
-        self._collection.delete(expr)
-    
+        self._client.delete(collection_name=self._collection_name, filter=expr)
+
     async def list_documents(self) -> List[str]:
-        results = self._collection.query(expr="id != ''", output_fields=["id"])
+        results = self._client.query(
+            collection_name=self._collection_name,
+            filter="id != ''",
+            output_fields=["id"]
+        )
         doc_ids = set()
         for res in results:
             base_id = res["id"].rsplit("_", 1)[0]

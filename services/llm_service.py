@@ -3,7 +3,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_community.chat_models import ChatZhipuAI
-from langchain.agents import AgentExecutor, create_react_agent, Tool
+from langchain_classic.agents import AgentExecutor, create_react_agent
+from langchain_classic.tools import Tool
 from config.settings import settings
 from services.rag_service import rag_service
 from db.sql_service import sql_service
@@ -73,13 +74,27 @@ class LLMService:
             conversation_history=messages
         )
         
+        system_template = context_assembly.system_prompt + (
+            "\n\n可用工具:\n{tools}\n\n"
+            "你必须严格按照以下格式输出:\n\n"
+            "Question: 用户的问题\n"
+            "Thought: 思考下一步该做什么\n"
+            "Action: 工具名称，必须是 [{tool_names}] 之一\n"
+            "Action Input: 工具的输入参数\n"
+            "Observation: 工具返回的结果\n"
+            "... (以上 Thought/Action/Action Input/Observation 可重复多次)\n"
+            "Thought: 我现在知道最终答案\n"
+            "Final Answer: 对用户问题的最终回答\n\n"
+            "注意: Action 后面只能跟 [{tool_names}] 中的工具名，不能编造工具名。\n"
+            "如果不使用工具，直接输出 Final Answer。"
+        )
         prompt = ChatPromptTemplate.from_messages([
-            ("system", context_assembly.system_prompt),
+            ("system", system_template),
             MessagesPlaceholder(variable_name="chat_history"),
             ("user", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
+            ("ai", "{agent_scratchpad}"),
         ])
-        
+
         agent = create_react_agent(self._llm, self._tools, prompt)
         agent_executor = AgentExecutor(
             agent=agent, tools=self._tools, verbose=True, handle_parsing_errors=True)
@@ -91,14 +106,11 @@ class LLMService:
             elif msg["role"] == "assistant":
                 chat_history.append(("assistant", msg["content"]))
         
-        async for chunk in agent_executor.astream_events(
+        async for step in agent_executor.astream(
             {"input": question, "chat_history": chat_history},
-            version="v1"
         ):
-            if chunk["event"] == "on_chat_model_stream":
-                content = chunk["data"]["chunk"].content
-                if content:
-                    yield content
+            if "output" in step:
+                yield step["output"]
         
         await redis_client.add_message(session_id, {
             "role": MessageRole.USER,
