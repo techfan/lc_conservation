@@ -1,3 +1,6 @@
+import config.log_config
+import logging
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from config.settings import settings
@@ -7,7 +10,11 @@ from services.rag_service import rag_service
 from db.redis_client import redis_client
 from db.database import engine
 from models.models import Base
-from config.logger import logger
+
+### 设置日志格式 ###
+config.log_config.setup_logger()
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager

@@ -1,10 +1,12 @@
+import logging
+
 from typing import List, Dict, Any, Optional
 from pymilvus import MilvusClient, DataType
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import ollama
 from config.settings import settings
-from config.logger import logger
 
+logger = logging.getLogger(__name__)
 
 class OllamaEmbeddings:
     def __init__(self, model: str = "bge-m3", base_url: str = "http://localhost:11434"):

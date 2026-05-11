@@ -17,3 +17,7 @@ zhipuai==2.1.5.20250825
 ollama>=0.3.0
 httpx>=0.27.0
 docx2txt==0.9
+
+pydantic-settings~=2.14.1
+langchain-text-splitters~=1.1.2
+ddtrace~=4.8.2
