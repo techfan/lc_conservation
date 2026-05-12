@@ -76,7 +76,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ### 1. 智能问答
 
 ```bash
-POST /api/v1/query
+POST /routers/v1/query
 Content-Type: application/json
 
 {
@@ -90,7 +90,7 @@ Content-Type: application/json
 ### 2. 上传文档
 
 ```bash
-POST /api/v1/documents/upload
+POST /routers/v1/documents/upload
 Content-Type: multipart/form-data
 
 file: [PDF/Word/TXT文件]
@@ -99,31 +99,31 @@ file: [PDF/Word/TXT文件]
 ### 3. 列出文档
 
 ```bash
-GET /api/v1/documents
+GET /routers/v1/documents
 ```
 
 ### 4. 删除文档
 
 ```bash
-DELETE /api/v1/documents/{doc_id}
+DELETE /routers/v1/documents/{doc_id}
 ```
 
 ### 5. 获取会话信息
 
 ```bash
-GET /api/v1/sessions/{session_id}
+GET /routers/v1/sessions/{session_id}
 ```
 
 ### 6. 清除会话
 
 ```bash
-DELETE /api/v1/sessions/{session_id}
+DELETE /routers/v1/sessions/{session_id}
 ```
 
 ### 7. 刷新数据库Schema
 
 ```bash
-GET /api/v1/schema/refresh
+GET /routers/v1/schema/refresh
 ```
 
 ## 核心功能

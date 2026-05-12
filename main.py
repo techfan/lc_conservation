@@ -1,10 +1,14 @@
 import config.log_config
 import logging
+import traceback
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from config.settings import settings
-from api.v1 import router as api_router
+from exception.exceptions import ServiceException
+from routers import chat, document, schema, session
+from schemas.schemas import ResponseObject
 from services.llm_service import llm_service
 from services.rag_service import rag_service
 from db.redis_client import redis_client
@@ -13,7 +17,6 @@ from models.models import Base
 
 ### 设置日志格式 ###
 config.log_config.setup_logger()
-
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +67,44 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(chat.api)
+app.include_router(document.api)
+app.include_router(schema.api)
+app.include_router(session.api)
+
+
+### 全局异常处理器 ###
+@app.exception_handler(ServiceException)
+async def service_exception_handler(request: Request, exc: ServiceException):
+    """处理自定义服务异常"""
+    logger.error(f"ServiceException: {exc.message}")
+    
+    error_response = ResponseObject(
+        success=False,
+        message=exc.message
+    )
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=error_response.model_dump()
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """处理所有未捕获的异常"""
+    logger.error(f"Unhandled Exception: {str(exc)}")
+    logger.error(traceback.format_exc())
+    
+    error_response = ResponseObject(
+        success=False,
+        message=str(exc)
+    )
+    
+    return JSONResponse(
+        status_code=500,
+        content=error_response.model_dump()
+    )
 
 
 @app.get("/")

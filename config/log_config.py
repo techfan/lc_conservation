@@ -20,8 +20,7 @@ class TraceLogFormatter(logging.Formatter):
                 "%(levelname)s | "
                 "%(filename)s | "
                 "%(message)s"
-            ),
-            datefmt="%Y-%m-%d %H:%M:%S"
+            )
         )
 
 def setup_logger():

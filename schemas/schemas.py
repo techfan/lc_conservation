@@ -60,3 +60,11 @@ class SessionInfo(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int
+
+
+class ResponseObject(BaseModel):
+    """统一成功响应格式"""
+    success: bool = True
+    data: Optional[Any] = None
+    message: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.now)

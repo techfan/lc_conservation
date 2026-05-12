@@ -1,16 +1,14 @@
-from typing import AsyncGenerator, Dict, Any, List, Optional
+from typing import AsyncGenerator, Dict, Any, Optional
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
 from langchain_community.chat_models import ChatZhipuAI
 from langchain_classic.agents import AgentExecutor, create_react_agent
 from langchain_classic.tools import Tool
 from config.settings import settings
 from services.rag_service import rag_service
-from db.sql_service import sql_service
+from services.sql_service import sql_service
 from context.manager import ContextManager
 from db.redis_client import redis_client
-from schemas.schemas import Message, MessageRole
+from schemas.schemas import MessageRole
 
 
 class LLMService:

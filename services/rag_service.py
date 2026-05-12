@@ -1,10 +1,17 @@
 import logging
+import os
+import tempfile
+import uuid
 
 from typing import List, Dict, Any, Optional
+
+from fastapi import UploadFile, File
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from pymilvus import MilvusClient, DataType
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import ollama
 from config.settings import settings
+from exception.exceptions import ServiceException
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +174,7 @@ class RAGService:
         expr = f"id like '{doc_id}_%'"
         self._client.delete(collection_name=self._collection_name, filter=expr)
 
-    async def list_documents(self) -> List[str]:
+    async def list_documents(self) -> dict[str, list[str]]:
         results = self._client.query(
             collection_name=self._collection_name,
             filter="id != ''",
@@ -177,7 +184,50 @@ class RAGService:
         for res in results:
             base_id = res["id"].rsplit("_", 1)[0]
             doc_ids.add(base_id)
-        return list(doc_ids)
+        return {"documents": list(doc_ids)}
 
 
 rag_service = RAGService()
+
+
+async def upload_document(file: UploadFile = File(...)):
+    doc_id = str(uuid.uuid4())
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        if file.filename.endswith('.pdf'):
+            loader = PyPDFLoader(tmp_path)
+            docs = loader.load()
+            full_content = "\n".join([doc.page_content for doc in docs])
+        elif file.filename.endswith('.docx'):
+            loader = Docx2txtLoader(tmp_path)
+            docs = loader.load()
+            full_content = "\n".join([doc.page_content for doc in docs])
+        else:
+            # 对于文本文件，尝试多种编码读取
+            full_content = ""
+            encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']
+            for encoding in encodings:
+                try:
+                    with open(tmp_path, 'r', encoding=encoding) as f:
+                        full_content = f.read()
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+            if not full_content:
+                raise ServiceException(message="无法解析文件编码")
+
+        await rag_service.add_document(
+            doc_id=doc_id,
+            content=full_content,
+            metadata={"file_name": file.filename}
+        )
+
+        return {"document_id": doc_id, "file_name": file.filename}
+    finally:
+        os.unlink(tmp_path)
