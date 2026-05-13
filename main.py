@@ -1,11 +1,10 @@
-import config.log_config
 import logging
 import traceback
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-from config.settings import settings
+from config import settings
 from exception.exceptions import ServiceException
 from routers import chat, document, schema, session
 from schemas.schemas import ResponseObject
@@ -15,10 +14,7 @@ from db.redis_client import redis_client
 from db.database import engine
 from models.models import Base
 
-### 设置日志格式 ###
-config.log_config.setup_logger()
 logger = logging.getLogger(__name__)
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,7 +45,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
     
-    logger.info("应用启动完成")
+    logger.info(f"{settings.project.name}【{settings.project.active}】启动完成")
     yield
     
     logger.info("应用关闭中...")
@@ -62,8 +58,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version=settings.VERSION,
+    title=settings.project.name,
+    version=settings.project.version,
     lifespan=lifespan
 )
 
@@ -110,8 +106,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 @app.get("/")
 async def root():
     return {
-        "service": settings.PROJECT_NAME,
-        "version": settings.VERSION
+        "service": settings.project.name,
+        "version": settings.project.version
     }
 
 

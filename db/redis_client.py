@@ -2,7 +2,7 @@ import redis.asyncio as redis
 from typing import Optional, Dict, Any
 import json
 from datetime import timedelta
-from config.settings import settings
+from config import settings
 
 
 class RedisClient:
@@ -12,7 +12,7 @@ class RedisClient:
     async def connect(self):
         if not self._client:
             self._client = redis.from_url(
-                settings.REDIS_URL,
+                settings.redis.url,
                 decode_responses=True
             )
     
@@ -26,7 +26,7 @@ class RedisClient:
         return json.loads(data) if data else None
     
     async def save_session(self, session_id: str, session_data: Dict[str, Any], ttl: Optional[int] = None):
-        ttl = ttl or settings.REDIS_TTL
+        ttl = ttl or settings.redis.ttl
         await self._client.setex(
             f"session:{session_id}",
             timedelta(seconds=ttl),

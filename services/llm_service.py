@@ -3,7 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_community.chat_models import ChatZhipuAI
 from langchain_classic.agents import AgentExecutor, create_react_agent
 from langchain_classic.tools import Tool
-from config.settings import settings
+from config import settings
 from services.rag_service import rag_service
 from services.sql_service import sql_service
 from context.manager import ContextManager
@@ -19,8 +19,8 @@ class LLMService:
     
     def initialize(self):
         self._llm = ChatZhipuAI(
-            model=settings.LLM_MODEL,
-            api_key=settings.ZHIPU_API_KEY,
+            model=settings.models.llm.model_name,
+            api_key=settings.models.llm.api_key,
             temperature=0.1
         )
         

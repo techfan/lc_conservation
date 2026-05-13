@@ -8,7 +8,7 @@ from context.layers import (
     UserContextLayer,
     ConversationHistoryLayer
 )
-from config.settings import settings
+from config import settings
 import tiktoken
 
 
@@ -47,7 +47,7 @@ class ContextManager:
         total_tokens = sum(layer.token_count for layer in layers_sorted)
         truncated = False
         
-        if total_tokens > settings.MAX_CONTEXT_TOKENS:
+        if total_tokens > settings.context_manager.max_context_tokens:
             layers_sorted = self._truncate_context(layers_sorted)
             truncated = True
         
@@ -78,7 +78,7 @@ class ContextManager:
                 other_layers.append(layer)
         
         other_tokens = sum(l.token_count for l in other_layers)
-        available_tokens = settings.MAX_CONTEXT_TOKENS - other_tokens
+        available_tokens = settings.context_manager.max_context_tokens - other_tokens
         
         if history_layer and available_tokens > 0:
             history_text = history_layer.content

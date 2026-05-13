@@ -1,0 +1,27 @@
+redis:
+  url: redis://localhost:6379
+  ttl: 604800
+
+milvus:
+  host: localhost
+  port: 19530
+  collection: rag_documents
+
+postgres:
+  url: postgresql+asyncpg://admin:Admin%40123@localhost:5432/ai-conservation
+
+models:
+  llm:
+    api_key: 60c3230638b343869bfba9e6ceb744da.FfQPmLl505bMJnrm
+    model_name: glm-4.7-flash
+  embedding:
+    model_name: bge-m3
+    url: http://localhost:11434
+  reranker:
+    model_name: bge-reranker-v2-m3
+    url: http://localhost:11434
+
+context_manager:
+  max_context_tokens: 8000
+  max_history_length: 20
+  compression_threshold: 10

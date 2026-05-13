@@ -10,7 +10,7 @@ from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from pymilvus import MilvusClient, DataType
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 import ollama
-from config.settings import settings
+from config import settings
 from exception.exceptions import ServiceException
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ class OllamaReranker:
 class RAGService:
     def __init__(self):
         self._client: Optional[MilvusClient] = None
-        self._collection_name: str = settings.MILVUS_COLLECTION
+        self._collection_name: str = settings.milvus.collection
         self._embeddings: Optional[OllamaEmbeddings] = None
         self._reranker: Optional[OllamaReranker] = None
         self._text_splitter = RecursiveCharacterTextSplitter(
@@ -82,7 +82,7 @@ class RAGService:
         )
 
     def connect(self):
-        self._client = MilvusClient(uri=f"http://{settings.MILVUS_HOST}:{settings.MILVUS_PORT}")
+        self._client = MilvusClient(uri=f"http://{settings.milvus.host}:{settings.milvus.port}")
         self._create_collection()
         self._embeddings = OllamaEmbeddings(model="bge-m3")
         self._reranker = OllamaReranker(model="qllama/bge-reranker-v2-m3")
