@@ -81,7 +81,7 @@ async def service_exception_handler(request: Request, exc: ServiceException):
     )
     
     return JSONResponse(
-        status_code=exc.status_code,
+        status_code=500,
         content=error_response.model_dump()
     )
 
