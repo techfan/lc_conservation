@@ -73,7 +73,8 @@ app.include_router(session.api)
 @app.exception_handler(ServiceException)
 async def service_exception_handler(request: Request, exc: ServiceException):
     """处理自定义服务异常"""
-    logger.error(f"ServiceException: {exc.message}")
+    # logger.error(f"ServiceException: {str(exc)}")
+    logger.exception("业务异常！")
     
     error_response = ResponseObject(
         success=False,
@@ -89,9 +90,8 @@ async def service_exception_handler(request: Request, exc: ServiceException):
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """处理所有未捕获的异常"""
-    logger.error(f"Unhandled Exception: {str(exc)}")
-    logger.error(traceback.format_exc())
-    
+    logger.exception(f"未知异常！")
+
     error_response = ResponseObject(
         success=False,
         message=str(exc)

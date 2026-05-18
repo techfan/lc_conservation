@@ -67,4 +67,4 @@ class ResponseObject(BaseModel):
     success: bool = True
     data: Optional[Any] = None
     message: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: str = Field(default_factory=lambda : datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

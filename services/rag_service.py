@@ -25,9 +25,7 @@ class OllamaEmbeddings:
             response = ollama.embeddings(model=self.model, prompt=text)
             return response["embedding"]
         except Exception as e:
-            logger.error(f"使用 ollama 生成嵌入向量失败: {e}")
-            import random
-            return [random.uniform(-1, 1) for _ in range(1024)]
+            raise ServiceException(f"使用 ollama 获取嵌入向量失败") from e
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         embeddings = []
@@ -187,47 +185,47 @@ class RAGService:
         return {"documents": list(doc_ids)}
 
 
+    async def upload_document(self, file: UploadFile = File(...)):
+        doc_id = str(uuid.uuid4())
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        try:
+            if file.filename.endswith('.pdf'):
+                loader = PyPDFLoader(tmp_path)
+                docs = loader.load()
+                full_content = "\n".join([doc.page_content for doc in docs])
+            elif file.filename.endswith('.docx'):
+                loader = Docx2txtLoader(tmp_path)
+                docs = loader.load()
+                full_content = "\n".join([doc.page_content for doc in docs])
+            else:
+                # 对于文本文件，尝试多种编码读取
+                full_content = ""
+                encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']
+                for encoding in encodings:
+                    try:
+                        with open(tmp_path, 'r', encoding=encoding) as f:
+                            full_content = f.read()
+                        break
+                    except UnicodeDecodeError:
+                        continue
+
+                if not full_content:
+                    raise ServiceException(message="无法解析文件编码")
+
+            await self.add_document(
+                doc_id=doc_id,
+                content=full_content,
+                metadata={"file_name": file.filename}
+            )
+
+            return {"document_id": doc_id, "file_name": file.filename}
+        finally:
+            os.unlink(tmp_path)
+
+
 rag_service = RAGService()
-
-
-async def upload_document(file: UploadFile = File(...)):
-    doc_id = str(uuid.uuid4())
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
-        content = await file.read()
-        tmp.write(content)
-        tmp_path = tmp.name
-
-    try:
-        if file.filename.endswith('.pdf'):
-            loader = PyPDFLoader(tmp_path)
-            docs = loader.load()
-            full_content = "\n".join([doc.page_content for doc in docs])
-        elif file.filename.endswith('.docx'):
-            loader = Docx2txtLoader(tmp_path)
-            docs = loader.load()
-            full_content = "\n".join([doc.page_content for doc in docs])
-        else:
-            # 对于文本文件，尝试多种编码读取
-            full_content = ""
-            encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']
-            for encoding in encodings:
-                try:
-                    with open(tmp_path, 'r', encoding=encoding) as f:
-                        full_content = f.read()
-                    break
-                except UnicodeDecodeError:
-                    continue
-
-            if not full_content:
-                raise ServiceException(message="无法解析文件编码")
-
-        await rag_service.add_document(
-            doc_id=doc_id,
-            content=full_content,
-            metadata={"file_name": file.filename}
-        )
-
-        return {"document_id": doc_id, "file_name": file.filename}
-    finally:
-        os.unlink(tmp_path)

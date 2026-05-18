@@ -18,7 +18,7 @@ models:
     model_name: bge-m3
     url: http://localhost:11434
   reranker:
-    model_name: bge-reranker-v2-m3
+    model_name: qllama/bge-reranker-v2-m3
     url: http://localhost:11434
 
 context_manager:
